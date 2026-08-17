@@ -188,12 +188,12 @@ body {
   letter-spacing: -0.5px;
   line-height: 1.1;
 }
+.stat-value-row { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
 .stat-value.blue { color: var(--accent-glow); }
 .stat-value.gold { color: var(--gold); }
-.stat-value.small { font-size: 17px; letter-spacing: -0.5px; }
 .stat-value.red { color: #f87171; }
 .stat-value.green { color: var(--green); }
-.stat-sub { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+.stat-sub { font-size: 13px; font-weight: 600; color: var(--text-dim); white-space: nowrap; }
 
 /* Per-employee stats scope banner */
 .nv-scope {
@@ -334,14 +334,15 @@ body {
 .kh-card:active { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.16); }
 
 .kh-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
-.kh-name { font-size: 14px; font-weight: 600; flex: 1; line-height: 1.3; }
+.kh-name { font-size: 13px; font-weight: 500; flex: 1; line-height: 1.3; }
 .kh-tien-col { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
 .kh-tien { font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 700; color: #fca5a5; white-space: nowrap; flex-shrink: 0; }
 .kh-thang { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
 
 .kh-card-mid { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; }
-.kh-ma { font-family: 'Inter', sans-serif; font-size: 10px; color: var(--accent-glow); font-weight: 500; }
-.kh-phone { font-family: 'Inter', sans-serif; font-size: 11px; color: var(--text-dim); }
+.kh-ma { font-family: 'Inter', sans-serif; font-size: 13px; color: var(--accent-glow); font-weight: 500; }
+.kh-phone { font-family: 'Inter', sans-serif; font-size: 13px; color: var(--text-dim); font-weight: 500; }
+.kh-card-mid .badge { font-size: 13px; font-weight: 500; }
 
 .kh-addr-line { font-size: 11px; color: var(--text-dim); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kh-card-bot { display: flex; justify-content: space-between; align-items: center; }
@@ -560,7 +561,7 @@ mark { background: rgba(251,191,36,0.3); color: #fde68a; border-radius: 2px; pad
 /* Mobile-only refinements */
 @media (max-width: 639.98px) {
   .filter-select { font-size: 16px; padding-top: 12px; padding-bottom: 12px; }
-  .kh-name { font-size: 15px; }
+  .kh-name { font-size: 13px; }
   .kh-tien { font-size: 15px; }
   .page-btn { width: 38px; height: 38px; font-size: 13px; }
   .page-btns { flex-wrap: wrap; justify-content: center; }
@@ -634,8 +635,10 @@ mark { background: rgba(251,191,36,0.3); color: #fde68a; border-radius: 2px; pad
     <div class="stats-row">
       <div class="stat-card">
         <div class="stat-label">Tổng nợ</div>
-        <div class="stat-value gold" id="statTongNo">0</div>
-        <div class="stat-sub">VNĐ</div>
+        <div class="stat-value-row">
+          <div class="stat-value gold tong-no" id="statTongNo">0</div>
+          <div class="stat-sub">VNĐ</div>
+        </div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Tổng hoá đơn nợ</div>
@@ -750,22 +753,107 @@ let sortCol = 'tien_no', sortDir = -1;
 let currentPage = 1;
 const PAGE_SIZE = 30;
 const SAVE_KEY = 'qlno_data_v1';
+const DB_NAME = 'qlno_db';
+const DB_STORE = 'qlno_data';
+const DB_KEY = 'qlno_data';
 
-// Persist the parsed data so the file doesn't have to be re-picked on reload
-function saveData() {
+// ── Storage helpers: gzip-compressed localStorage → IndexedDB fallback ──
+function bytesToBase64(bytes) {
+  let bin = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+function base64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+async function compressString(str) {
+  if (typeof CompressionStream === 'undefined') return null;
+  const stream = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+async function decompressBytes(bytes) {
+  if (typeof DecompressionStream === 'undefined') return null;
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new TextDecoder().decode(await new Response(stream).arrayBuffer());
+}
+function openDB() {
+  return new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) return reject(new Error('IndexedDB không khả dụng'));
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore(DB_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function dbSet(value) {
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).put(value, DB_KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  }));
+}
+function dbGet() {
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(DB_STORE, 'readonly');
+    const req = tx.objectStore(DB_STORE).get(DB_KEY);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  }));
+}
+function dbClear() {
+  return openDB().then(db => new Promise(resolve => {
+    const tx = db.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).delete(DB_KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  }));
+}
+
+// Persist the parsed data: compressed into localStorage, IndexedDB as fallback
+async function saveData() {
+  const payload = {
+    name: document.getElementById('fileLabel').textContent,
+    data: allData
+  };
   try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({
-      name: document.getElementById('fileLabel').textContent,
-      data: allData
-    }));
+    const json = JSON.stringify(payload);
+    const compressed = await compressString(json);
+    // Strategy 1: gzip-compressed JSON in localStorage ('c:' marker)
+    if (compressed) {
+      try {
+        localStorage.setItem(SAVE_KEY, 'c:' + bytesToBase64(compressed));
+        dbClear().catch(() => {});
+        return;
+      } catch(e) { /* quota exceeded — fall through */ }
+    }
+    // Strategy 2: plain JSON in localStorage (small files, no CompressionStream)
+    try {
+      localStorage.setItem(SAVE_KEY, 'j:' + json);
+      dbClear().catch(() => {});
+      return;
+    } catch(e) { /* quota exceeded — fall through */ }
   } catch(e) {
-    // Quota exceeded or storage unavailable — nothing to do
+    console.warn('Không thể nén/lưu dữ liệu:', e);
+  }
+  // Strategy 3: IndexedDB — handles very large files
+  try {
+    await dbSet(payload);
+    try { localStorage.removeItem(SAVE_KEY); } catch(e) {}
+  } catch(e) {
     console.warn('Không thể lưu dữ liệu vào bộ nhớ:', e);
   }
 }
 
-function clearSavedData() {
+async function clearSavedData() {
   try { localStorage.removeItem(SAVE_KEY); } catch(e) {}
+  try { await dbClear(); } catch(e) {}
   allData = []; filtered = [];
   nvScope = ''; currentPage = 1;
   document.getElementById('clearDataBtn').style.display = 'none';
@@ -777,13 +865,26 @@ function clearSavedData() {
   updateStats();
 }
 
-// Restore previously saved data on page load
-function restoreData() {
+// Restore previously saved data on page load (async)
+async function restoreData() {
   let saved = null;
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) saved = JSON.parse(raw);
-  } catch(e) { /* corrupted storage — ignore */ }
+    if (raw) {
+      if (raw.startsWith('c:')) {
+        const json = await decompressBytes(base64ToBytes(raw.slice(2)));
+        saved = json ? JSON.parse(json) : null;
+      } else if (raw.startsWith('j:')) {
+        saved = JSON.parse(raw.slice(2));
+      } else {
+        saved = JSON.parse(raw); // legacy plain JSON
+      }
+    }
+  } catch(e) { saved = null; }
+  if (!saved || !Array.isArray(saved.data) || saved.data.length === 0) {
+    // Fallback: IndexedDB
+    try { saved = await dbGet(); } catch(e) { saved = null; }
+  }
   if (!saved || !Array.isArray(saved.data) || saved.data.length === 0) return;
   allData = saved.data;
   document.getElementById('fileLabel').textContent = saved.name || allData.length.toLocaleString('vi-VN') + ' bản ghi';
@@ -942,10 +1043,7 @@ function updateStats() {
   const unique = new Set(src.map(r=>r.ma_khach_hang)).size;
   const tongNo = src.reduce((s,r)=>s+r.tien_no,0);
   document.getElementById('statTotal').textContent = total.toLocaleString('vi-VN');
-  const tongNoText = fmt(tongNo);
-  const tongNoEl = document.getElementById('statTongNo');
-  tongNoEl.textContent = tongNoText;
-  tongNoEl.classList.toggle('small', tongNoText.length > 11);
+  document.getElementById('statTongNo').textContent = fmt(tongNo);
   document.getElementById('statUnique').textContent = unique.toLocaleString('vi-VN');
   document.getElementById('countTotal').textContent = total.toLocaleString('vi-VN');
   const scope = document.getElementById('nvScope');
@@ -1036,8 +1134,6 @@ function renderCards(q='') {
 
   list.innerHTML = pageData.map((r,i) => {
     const phone = r.dien_thoai && r.dien_thoai!='0' ? r.dien_thoai : '';
-    // When scoped to one employee, showing their name on every card is redundant → hide it
-    const showNv = !nvScope && r.nhan_vien;
     return `<div class="kh-card" onclick="showDetail(${start+i})">
       <div class="kh-card-top">
         <div class="kh-name">${hi(r.ten_khach_hang,q)||'—'}</div>
@@ -1047,12 +1143,11 @@ function renderCards(q='') {
         </div>
       </div>
       <div class="kh-card-mid">
+        ${r.danh_so ? `<span class="badge badge-blue">${hi(r.danh_so,q)}</span>` : ''}
         <span class="kh-ma">${hi(r.ma_khach_hang,q)}</span>
         ${phone ? `<span class="kh-phone">📞 ${hi(phone,q)}</span>` : ''}
-        ${r.danh_so ? `<span class="badge badge-blue">🔢 Danh số: ${hi(r.danh_so,q)}</span>` : ''}
       </div>
       ${r.dia_chi ? `<div class="kh-addr-line">📍 ${hi(r.dia_chi,q)}</div>` : ''}
-      ${showNv ? `<div class="kh-card-bot"><div class="kh-nv"><span class="nv-link" onclick="event.stopPropagation(); showNvStats(${start+i})">👤 ${r.nhan_vien}</span></div></div>` : ''}
     </div>`;
   }).join('');
 }
