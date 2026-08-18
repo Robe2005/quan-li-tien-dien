@@ -102,6 +102,28 @@ body {
 .clear-btn-header:active { background: rgba(255,255,255,0.14); }
 #fileInput { display: none; }
 
+.action-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px 0;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.action-bar-btn {
+  background: rgba(16,185,129,0.15);
+  color: var(--green);
+  border: 1px solid rgba(16,185,129,0.3);
+  width: 36px; height: 36px;
+  border-radius: 9px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.action-bar-btn:hover { background: rgba(16,185,129,0.25); }
+.action-bar-btn:active { background: rgba(16,185,129,0.35); }
+
 /* ── MAIN ───────────────────────────────── */
 .main { padding: 0 12px calc(100px + env(safe-area-inset-bottom, 0px)); max-width: 900px; margin: 0 auto; }
 
@@ -334,20 +356,21 @@ body {
 .kh-card:active { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.16); }
 
 .kh-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
-.kh-name { font-size: 13px; font-weight: 500; flex: 1; line-height: 1.3; }
+.kh-name { font-size: 14px; font-weight: 500; flex: 1; line-height: 1.3; }
 .kh-tien-col { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; }
 .kh-tien { font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 700; color: #fca5a5; white-space: nowrap; flex-shrink: 0; }
-.kh-thang { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.kh-thang { font-size: 11px; color: var(--text-dim); margin-top: 2px; font-weight: 500; }
 
 .kh-card-mid { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; }
 .kh-ma { font-family: 'Inter', sans-serif; font-size: 13px; color: var(--accent-glow); font-weight: 500; }
 .kh-phone { font-family: 'Inter', sans-serif; font-size: 13px; color: var(--text-dim); font-weight: 500; }
 .kh-card-mid .badge { font-size: 13px; font-weight: 500; }
+.kh-card-mid .badge-danhso { background: rgba(59,130,246,0.15); color: #fff; }
 
 .kh-addr-line { font-size: 11px; color: var(--text-dim); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kh-card-bot { display: flex; justify-content: space-between; align-items: center; }
 .kh-nv { font-size: 11px; color: var(--text-dim); }
-.kh-thang { font-size: 11px; color: var(--text-dim); }
+.kh-thang { font-size: 11px; color: var(--text-dim); font-weight: 500; }
 
 /* Clickable employee name → per-NV stats */
 .nv-link {
@@ -561,7 +584,7 @@ mark { background: rgba(251,191,36,0.3); color: #fde68a; border-radius: 2px; pad
 /* Mobile-only refinements */
 @media (max-width: 639.98px) {
   .filter-select { font-size: 16px; padding-top: 12px; padding-bottom: 12px; }
-  .kh-name { font-size: 13px; }
+  .kh-name { font-size: 14px; }
   .kh-tien { font-size: 15px; }
   .page-btn { width: 38px; height: 38px; font-size: 13px; }
   .page-btns { flex-wrap: wrap; justify-content: center; }
@@ -605,6 +628,9 @@ mark { background: rgba(251,191,36,0.3); color: #fde68a; border-radius: 2px; pad
     📂 Tải file
   </button>
   <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" onchange="handleFileUpload(this)">
+</div>
+<div class="action-bar" id="actionBar" style="display:none">
+  <button class="action-bar-btn" id="exportBtn" onclick="exportExcel()" title="Xuất Excel">📥</button>
 </div>
 
 <div class="main" id="mainContent">
@@ -673,6 +699,9 @@ mark { background: rgba(251,191,36,0.3); color: #fde68a; border-radius: 2px; pad
         </button>
         <button class="sort-btn" id="sortTienNo" onclick="sortBy('tien_no')">
           <span class="sort-label">💰 Tiền nợ</span><span class="sort-arrow">↕</span>
+        </button>
+        <button class="sort-btn" id="sortThang" onclick="sortBy('thang_no')">
+          <span class="sort-label">📅 Tháng</span><span class="sort-arrow">↕</span>
         </button>
       </div>
     </div>
@@ -857,6 +886,7 @@ async function clearSavedData() {
   allData = []; filtered = [];
   nvScope = ''; currentPage = 1;
   document.getElementById('clearDataBtn').style.display = 'none';
+  document.getElementById('actionBar').style.display = 'none';
   document.getElementById('fileLabel').textContent = 'Chưa có dữ liệu';
   document.getElementById('dataView').style.display = 'none';
   document.getElementById('welcomeState').style.display = 'block';
@@ -889,6 +919,7 @@ async function restoreData() {
   allData = saved.data;
   document.getElementById('fileLabel').textContent = saved.name || allData.length.toLocaleString('vi-VN') + ' bản ghi';
   document.getElementById('clearDataBtn').style.display = 'flex';
+  document.getElementById('actionBar').style.display = 'flex';
   document.getElementById('welcomeState').style.display = 'none';
   document.getElementById('dataView').style.display = 'block';
   initFilters(); updateStats(); applyFilters();
@@ -1010,6 +1041,7 @@ function processFile(file) {
 
       document.getElementById('fileLabel').textContent = `${file.name} · ${allData.length.toLocaleString()} bản ghi`;
       document.getElementById('clearDataBtn').style.display = 'flex';
+      document.getElementById('actionBar').style.display = 'flex';
       initFilters(); updateStats(); applyFilters();
       saveData();
       document.getElementById('loadingState').style.display = 'none';
@@ -1085,6 +1117,11 @@ function applyFilters() {
   filtered.sort((a,b) => {
     let av=a[sortCol], bv=b[sortCol];
     if (sortCol==='stt'||sortCol==='danh_so'||sortCol==='so_tbi') { const an=parseFloat(av)||0, bn=parseFloat(bv)||0; return (an-bn)*sortDir; }
+    if (sortCol==='thang_no') {
+      // Parse month strings like '1-7/2026', '08/2026', '8/2026' → Date for proper chronological sort
+      const parseM = s => { if (!s) return 0; const m = String(s).match(/(\d+)(?:[-\/](?:\d+[-\/])?)?(\d{4})/); return m ? new Date(+m[2], +m[1]-1).getTime() : 0; };
+      return (parseM(av)-parseM(bv))*sortDir;
+    }
     if (typeof av==='number') return (av-bv)*sortDir;
     return String(av).localeCompare(String(bv),'vi')*sortDir;
   });
@@ -1110,7 +1147,7 @@ function sortBy(col) {
 
 // Sync the two quick sort buttons with the current sort state
 function updateSortButtons() {
-  const map = { 'danh_so':'sortDanhSo', 'tien_no':'sortTienNo' };
+  const map = { 'danh_so':'sortDanhSo', 'tien_no':'sortTienNo', 'thang_no':'sortThang' };
   Object.entries(map).forEach(([col, id]) => {
     const btn = document.getElementById(id);
     if (!btn) return;
@@ -1121,6 +1158,36 @@ function updateSortButtons() {
   });
 }
 updateSortButtons();
+
+
+
+// EXPORT EXCEL
+function exportExcel() {
+  if (!filtered.length) { alert('Không có dữ liệu để xuất.'); return; }
+  const cols = [
+    ['STT', 'stt'], ['Mã KH', 'ma_khach_hang'], ['Tên KH', 'ten_khach_hang'],
+    ['Địa chỉ', 'dia_chi'], ['Mã Số GCS', 'ma_sogcs'], ['Danh Số', 'danh_so'],
+    ['Tháng', 'thang_no'], ['Tiền Nợ', 'tien_no'], ['SĐT', 'dien_thoai'],
+    ['Số TBi', 'so_tbi'], ['Ghi Chú', 'ghi_chu'], ['Nhóm', 'ma_nhom'], ['Nhân Viên', 'nhan_vien']
+  ];
+  const rows = filtered.map(r => {
+    const row = {};
+    cols.forEach(([label, key]) => { row[label] = r[key] ?? ''; });
+    return row;
+  });
+  const ws = XLSX.utils.json_to_sheet(rows, { header: cols.map(c => c[0]) });
+  // Auto-width columns
+  ws['!cols'] = cols.map(([label]) => {
+    const maxW = Math.max(label.length, ...rows.map(r => String(r[label] || '').length));
+    return { wch: Math.min(maxW + 2, 40) };
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Kết quả lọc');
+  const scope = nvScope ? '_' + nvScope : '';
+  const nhom = document.getElementById('filterNhom').value;
+  const filter = nhom ? '_' + nhom : '';
+  XLSX.writeFile(wb, `ket_qua_loc${scope}${filter}_${new Date().toISOString().slice(0,10)}.xlsx`);
+}
 
 // CARDS (mobile)
 function renderCards(q='') {
@@ -1143,11 +1210,12 @@ function renderCards(q='') {
         </div>
       </div>
       <div class="kh-card-mid">
-        ${r.danh_so ? `<span class="badge badge-blue">${hi(r.danh_so,q)}</span>` : ''}
+        ${r.danh_so ? `<span class="badge badge-blue badge-danhso">${hi(r.danh_so,q)}</span>` : ''}
         <span class="kh-ma">${hi(r.ma_khach_hang,q)}</span>
         ${phone ? `<span class="kh-phone">📞 ${hi(phone,q)}</span>` : ''}
       </div>
       ${r.dia_chi ? `<div class="kh-addr-line">📍 ${hi(r.dia_chi,q)}</div>` : ''}
+      ${r.ghi_chu ? `<div class="kh-addr-line">📝 ${hi(r.ghi_chu,q)}</div>` : ''}
     </div>`;
   }).join('');
 }
